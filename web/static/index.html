@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDTM GEN - SAS Code Generator</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">SDTM GEN</div>
+        <div class="nav-tabs">
+            <button class="nav-tab active" data-view="upload">上传与配置</button>
+            <button class="nav-tab" data-view="progress">进度监控</button>
+            <button class="nav-tab" data-view="history">历史记录</button>
+        </div>
+    </nav>
+
+    <main class="container">
+        <!-- Toast 通知容器 -->
+        <div id="toast-container"></div>
+
+        <!-- 视图 1: 上传与配置 -->
+        <section id="view-upload" class="view active">
+            <div class="card">
+                <h2>上传 SPEC 文件</h2>
+                <div id="drop-zone" class="drop-zone">
+                    <input type="file" id="file-input" accept=".xlsx,.xls,.csv" hidden>
+                    <p>拖拽文件到此处，或 <span class="link">点击选择</span></p>
+                    <p class="hint">支持 Excel (.xlsx, .xls) 和 CSV 格式</p>
+                </div>
+                <div id="upload-info" class="upload-info hidden">
+                    <p><strong>文件名:</strong> <span id="upload-filename"></span></p>
+                    <p><strong>检测到的 Domain:</strong> <span id="upload-domains"></span></p>
+                </div>
+            </div>
+
+            <div id="config-card" class="card hidden">
+                <h2>配置选项</h2>
+
+                <div class="form-group">
+                    <label>选择 Domain</label>
+                    <div class="domain-actions">
+                        <button type="button" class="btn-sm" id="btn-select-all">全选</button>
+                        <button type="button" class="btn-sm" id="btn-select-none">清空</button>
+                    </div>
+                    <div id="domain-list" class="domain-list"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="study-name">Study Name</label>
+                    <input type="text" id="study-name" value="STUDY" placeholder="STUDY">
+                </div>
+
+                <div class="form-group">
+                    <label>高级选项</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox">
+                            <input type="checkbox" id="rag-enabled">
+                            <span>启用 RAG (AI 变量生成)</span>
+                        </label>
+                        <label class="checkbox">
+                            <input type="checkbox" id="rag-mock" checked>
+                            <span>使用 Mock LLM (无需 API Key)</span>
+                        </label>
+                        <label class="checkbox">
+                            <input type="checkbox" id="lint-enabled">
+                            <span>生成后运行 Linter</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="kb-path">Knowledge Base 路径</label>
+                    <input type="text" id="kb-path" value="D:/Claude code/Knowlegde base" placeholder="Knowledge base path">
+                </div>
+
+                <div class="form-group">
+                    <label for="global-macro-refs">全局宏引用 (逗号分隔)</label>
+                    <input type="text" id="global-macro-refs" placeholder="例如: mymacro1, mymacro2">
+                </div>
+
+                <button id="btn-generate" class="btn-primary" disabled>开始生成</button>
+            </div>
+        </section>
+
+        <!-- 视图 2: 进度监控 -->
+        <section id="view-progress" class="view">
+            <div class="card">
+                <h2>生成进度</h2>
+                <div class="progress-header">
+                    <span id="progress-status" class="status-badge status-pending">pending</span>
+                    <span id="progress-text">0 / 0</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="progress-fill" class="progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="progress-time" class="progress-time"></div>
+            </div>
+
+            <div class="card">
+                <h2>Domain 状态</h2>
+                <table class="domain-table">
+                    <thead>
+                        <tr>
+                            <th>Domain</th>
+                            <th>状态</th>
+                            <th>耗时 (s)</th>
+                            <th>错误信息</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="domain-status-body"></tbody>
+                </table>
+            </div>
+
+            <div id="download-card" class="card hidden">
+                <h2>下载结果</h2>
+                <button id="btn-download-all" class="btn-primary">下载全部 (.zip)</button>
+                <div id="download-links" class="download-links"></div>
+            </div>
+        </section>
+
+        <!-- 视图 3: 历史记录 -->
+        <section id="view-history" class="view">
+            <div class="card">
+                <h2>历史任务</h2>
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th>Study Name</th>
+                            <th>Domains</th>
+                            <th>状态</th>
+                            <th>生成时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+                <div id="history-empty" class="empty-state hidden">暂无历史记录</div>
+            </div>
+        </section>
+    </main>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
