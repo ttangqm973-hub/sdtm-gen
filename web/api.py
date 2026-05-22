@@ -80,7 +80,11 @@ def _run_job_sync(
 
         result = scheduler.run(spec_path, config, progress_callback=progress_cb)
 
-        job.status = "success" if result["failed"] == 0 else "failed"
+        if result["total_domains"] == 0:
+            job.status = "failed"
+            job.error = "未检测到有效的 Domain sheet，请检查 SPEC 文件格式（首行需包含 varname/variable/label 等列名）"
+        else:
+            job.status = "success" if result["failed"] == 0 else "failed"
         job.progress = 1.0
         job.completed_domains = result["successful"]
         job.elapsed_seconds = result.get("elapsed_seconds")
@@ -140,11 +144,14 @@ async def upload_spec(file: UploadFile = File(...)):
     reader = ExcelReader()
     try:
         sheets = reader.read(str(file_path))
-        from batch.scheduler import _is_variable_sheet
-        domains = [
-            name for name, rows in sheets.items()
-            if _is_variable_sheet(rows)
-        ]
+        from batch.scheduler import _is_variable_sheet, BatchScheduler
+        scheduler = BatchScheduler()
+        domains = []
+        for name, rows in sheets.items():
+            if _is_variable_sheet(rows):
+                actual_domain = scheduler._resolve_domain(name, str(file_path))
+                if actual_domain not in domains:
+                    domains.append(actual_domain)
     except Exception:
         domains = []
 

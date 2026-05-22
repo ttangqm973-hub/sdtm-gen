@@ -130,6 +130,7 @@ class BatchScheduler:
             "elapsed_seconds": round(end_time - start_time, 2),
             "generated_files": generated_files,
             "details": results,
+            "domains_found": [d[0] for d in domains_to_process],
         }
 
         # 写入 batch_report.json

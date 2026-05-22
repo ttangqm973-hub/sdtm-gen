@@ -260,6 +260,10 @@ function updateProgressUI(data) {
                 downloadDomain(state.jobId, a.dataset.domain);
             });
         });
+    } else if (data.status === 'failed' && data.error) {
+        domainStatusBody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#dc2626">${escapeHtml(data.error)}</td></tr>`;
+    } else if (data.status === 'success' || data.status === 'failed') {
+        domainStatusBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#dc2626">未生成任何 Domain，请检查 SPEC 文件格式</td></tr>';
     } else {
         domainStatusBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af">等待中...</td></tr>';
     }

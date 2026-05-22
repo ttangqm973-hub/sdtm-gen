@@ -70,11 +70,12 @@ sdtm-gen build-kb --mock --force
 ### Web Server
 
 ```bash
-# Start FastAPI dev server
-python -m sdtm_gen.web.app
-# Or directly
+# Start FastAPI dev server (requires package installed)
+pip install -e .  # if not already installed
 uvicorn web.app:app --host 0.0.0.0 --port 8080
 ```
+
+Then open `http://localhost:8080` in browser. The static files from `web/static/` are auto-mounted at root.
 
 ## Architecture
 
@@ -124,6 +125,14 @@ Knowledge base (SAS code / macros / SPEC templates / SDTM IG PDF)
 - **Critical implementation detail**: Background jobs use `threading.Thread` (not `asyncio.create_task`) because FastAPI's `TestClient` does not reliably execute asyncio background tasks to completion between requests. The scheduler runs synchronously in a daemon thread; status is polled via `/api/status/{job_id}`.
 - **Route ordering gotcha**: `/api/download/{job_id}/all` must be registered BEFORE `/api/download/{job_id}/{domain}` in the router. FastAPI matches path parameters greedily; `/all` would otherwise be captured as `domain="all"`.
 
+### SPEC Template Format
+
+Real-world SPEC templates (in `D:/Claude code/Knowlegde base/SPEC template/`) use this structure:
+
+- **Multi-sheet xlsx**: `Variable`, `Values`, `Codelist`
+- **Variable sheet**: First 5-6 rows are metadata (dataset description, structure, key variables, sort order). The actual header row is around row 6-7 with columns: `VarOrd`, `VarName`, `VarLabel`, `VarType`, `VarLen`, `VarFormat`, `CT/CodeListID`, `Core`, `Origin`, `Source/Algorithm`, `CRF Pages`, `Algorithm for Programming`.
+- `ExcelReader._find_header_row()` automatically scans for the header row by matching indicator keywords (`varname`, `vartype`, `origin`, etc.). It does NOT assume row 0 is the header.
+
 ### Key Configuration Files
 
 - `config.py`: SPEC column mappings (`SPEC_COLUMN_MAP`, `SPEC_COLUMN_ALIASES`), domain labels, macro library categories, SAS keywords, variable classes.
@@ -144,4 +153,6 @@ Knowledge base (SAS code / macros / SPEC templates / SDTM IG PDF)
 - **Knowledge base path**: Hardcoded default is `D:/Claude code/Knowlegde base` (note the typo in "Knowlegde"). Override with `--kb-path` CLI flag or `kb_path` in Web API request.
 - **Cross-domain references**: When a variable's algorithm mentions `sdtm.XX.VARNAME` or `related_domains` is populated, the `cross_domain_lookup` template triggers, generating PROC SORT + MERGE by USUBJID.
 - **Date handling**: ISO 8601 DTC variables are parsed with `input(strip(scan(DTCVAR, 1, 'T')), ??yymmdd10.)`. Study day variables calculate `date - RFSTDT + 1`.
+- **Domain detection in Web API**: The `upload` endpoint must call `BatchScheduler._resolve_domain()` to map sheet names (e.g., `Variable`) to actual SDTM domain names (e.g., `AE`), NOT return raw sheet names. If `config.domains` contains sheet names while `_resolve_domain` returns real domains, the domain filter in `BatchScheduler.run` will skip everything and produce empty results.
+- **Empty domain handling**: If `domains_to_process` is empty (no valid variable sheets detected), `_run_job_sync` sets `job.status = "failed"` with a descriptive error, rather than incorrectly marking it as `success`.
 - **CLI entry**: `cli.py` is both a module (`python cli.py`) and an installed script (`sdtm-gen`) via `setup.py` `entry_points`. When editing CLI commands, verify both paths work.
