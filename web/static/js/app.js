@@ -197,7 +197,14 @@ function renderProgressView() {
         es.onmessage = e => {
             try {
                 const ev = JSON.parse(e.data);
-                if (ev.event === 'complete' || ev.event === 'error') {
+                if (ev.event === 'start') {
+                    progressStatus.textContent = 'running';
+                    progressStatus.className = 'status-badge status-running';
+                } else if (ev.event === 'progress') {
+                    progressText.textContent = `${ev.completed} / ${ev.total}`;
+                    const pct = ev.total > 0 ? Math.round((ev.completed / ev.total) * 100) : 0;
+                    progressFill.style.width = pct + '%';
+                } else if (ev.event === 'complete' || ev.event === 'error') {
                     pollStatus();
                 }
             } catch {}

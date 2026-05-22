@@ -5,6 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
+from typing import Callable, Optional
 
 from batch.study_config import StudyConfig
 from generator.sas_generator import SASGenerator
@@ -42,7 +43,12 @@ class BatchScheduler:
         self.reader = ExcelReader()
         self.builder = IRBuilder()
 
-    def run(self, spec_file: str, config: StudyConfig) -> dict:
+    def run(
+        self,
+        spec_file: str,
+        config: StudyConfig,
+        progress_callback: Optional[Callable[[str, str, int, int], None]] = None,
+    ) -> dict:
         """执行批量生成，返回报告字典"""
         start_time = time.time()
         start_iso = datetime.now().isoformat()
@@ -76,6 +82,8 @@ class BatchScheduler:
         # 并发生成
         generator = SASGenerator(str(output_dir))
         results = []
+        completed_count = 0
+        total_count = len(domains_to_process)
 
         if len(domains_to_process) == 1:
             # 单域不需要线程池
@@ -84,6 +92,9 @@ class BatchScheduler:
                 domain, rows, generator, rag_pipeline, linter, config
             )
             results.append(result)
+            completed_count += 1
+            if progress_callback:
+                progress_callback("progress", domain, completed_count, total_count)
         else:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 futures = {
@@ -96,6 +107,9 @@ class BatchScheduler:
                 for future in as_completed(futures):
                     result = future.result()
                     results.append(result)
+                    completed_count += 1
+                    if progress_callback:
+                        progress_callback("progress", result["domain"], completed_count, total_count)
 
         # 汇总报告
         successful = sum(1 for r in results if r["status"] == "success")

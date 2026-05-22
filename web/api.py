@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import tempfile
 import threading
@@ -6,6 +7,7 @@ import traceback
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -22,34 +24,61 @@ from web.models import (
     StatusResponse,
     UploadResponse,
 )
+from web.store import JobStore
 
 router = APIRouter()
 
-# In-memory stores (will be replaced by persistent storage in later tasks)
+# In-memory uploads cache (not persisted; files are temporary)
 _uploads: dict[str, dict] = {}
-_jobs: dict[str, StatusResponse] = {}
-_history: list[HistoryItem] = []
-_queues: dict[str, asyncio.Queue] = {}
 
 TEMP_DIR = Path(tempfile.gettempdir()) / "sdtm_gen_web"
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
+
+# Persistent stores
+store = JobStore(TEMP_DIR / "store")
+_queues: dict[str, asyncio.Queue] = {}
 
 
 def _generate_id() -> str:
     return str(uuid.uuid4())[:8]
 
 
-def _run_job_sync(job_id: str, spec_path: str, config: StudyConfig):
+def _run_job_sync(
+    job_id: str,
+    spec_path: str,
+    config: StudyConfig,
+    store: JobStore,
+    queue: Optional[asyncio.Queue],
+    loop: Optional[asyncio.AbstractEventLoop],
+):
     """Synchronous background task to run batch generation."""
-    job = _jobs[job_id]
-    queue = _queues.get(job_id)
+    job = store.get_job(job_id)
+    if not job:
+        return
+
+    def _put_event(ev: dict) -> None:
+        if queue and loop:
+            try:
+                loop.call_soon_threadsafe(queue.put_nowait, ev)
+            except RuntimeError:
+                # Event loop closed (e.g., during tests or server shutdown)
+                pass
+
+    _put_event({"event": "start"})
 
     job.status = "running"
     job.progress = 0.0
+    store.set_job(job_id, job)
 
     try:
         scheduler = BatchScheduler()
-        result = scheduler.run(spec_path, config)
+
+        def progress_cb(event_type: str, domain: str, completed: int, total: int) -> None:
+            job.progress = completed / total if total > 0 else 0.0
+            store.set_job(job_id, job)
+            _put_event({"event": "progress", "domain": domain, "completed": completed, "total": total})
+
+        result = scheduler.run(spec_path, config, progress_callback=progress_cb)
 
         job.status = "success" if result["failed"] == 0 else "failed"
         job.progress = 1.0
@@ -67,22 +96,29 @@ def _run_job_sync(job_id: str, spec_path: str, config: StudyConfig):
             )
             for d in result.get("details", [])
         ]
+        store.set_job(job_id, job)
 
-        _history.append(HistoryItem(
-            id=job_id,
-            study_name=config.study_name,
-            upload_id="",
-            domains=config.domains,
-            status=job.status,
-            generated_at=datetime.now().isoformat(),
-            output_dir=config.output_dir,
-        ))
+        store.append_history(
+            HistoryItem(
+                id=job_id,
+                study_name=config.study_name,
+                upload_id="",
+                domains=config.domains,
+                status=job.status,
+                generated_at=datetime.now().isoformat(),
+                output_dir=config.output_dir,
+            )
+        )
+
+        _put_event({"event": "complete"})
 
     except Exception as e:
         tb = traceback.format_exc()
         print(f"Job {job_id} failed: {e}\n{tb}", file=sys.stderr)
         job.status = "failed"
         job.error = str(e)
+        store.set_job(job_id, job)
+        _put_event({"event": "error", "message": str(e)})
 
 
 @router.post("/api/upload", response_model=UploadResponse)
@@ -149,16 +185,24 @@ async def generate(request: GenerateRequest):
     )
 
     # Initialize job status
-    _jobs[job_id] = StatusResponse(
-        job_id=job_id,
-        status="pending",
-        study_name=config.study_name,
-        total_domains=len(config.domains) if config.domains else len(upload.get("domains", [])),
+    total_domains = len(config.domains) if config.domains else len(upload.get("domains", []))
+    store.set_job(
+        job_id,
+        StatusResponse(
+            job_id=job_id,
+            status="pending",
+            study_name=config.study_name,
+            total_domains=total_domains,
+        ),
     )
     _queues[job_id] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
 
     # Start background task using threading for test compatibility
-    t = threading.Thread(target=_run_job_sync, args=(job_id, upload["path"], config))
+    t = threading.Thread(
+        target=_run_job_sync,
+        args=(job_id, upload["path"], config, store, _queues[job_id], loop),
+    )
     t.start()
 
     return GenerateResponse(
@@ -171,7 +215,7 @@ async def generate(request: GenerateRequest):
 @router.get("/api/status/{job_id}", response_model=StatusResponse)
 async def get_status(job_id: str):
     """Get job status and progress."""
-    job = _jobs.get(job_id)
+    job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -180,15 +224,18 @@ async def get_status(job_id: str):
 @router.get("/api/stream/{job_id}")
 async def stream_status(job_id: str):
     """Stream job progress via Server-Sent Events."""
-    if job_id not in _queues:
+    job = store.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    queue = _queues[job_id]
+    queue = _queues.get(job_id)
+    if not queue:
+        raise HTTPException(status_code=404, detail="Job stream not available")
 
     async def event_generator():
         while True:
             event = await queue.get()
-            data = f"data: {event}\n\n"
+            data = f"data: {json.dumps(event)}\n\n"
             yield data
             if event.get("event") in ("complete", "error"):
                 break
@@ -202,7 +249,7 @@ async def stream_status(job_id: str):
 @router.get("/api/download/{job_id}/all")
 async def download_all(job_id: str):
     """Download all generated files as a zip archive."""
-    job = _jobs.get(job_id)
+    job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -233,7 +280,7 @@ async def download_all(job_id: str):
 @router.get("/api/download/{job_id}/{domain}")
 async def download_domain(job_id: str, domain: str):
     """Download a single generated SAS file."""
-    job = _jobs.get(job_id)
+    job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -253,16 +300,14 @@ async def download_domain(job_id: str, domain: str):
 @router.get("/api/history", response_model=HistoryListResponse)
 async def get_history(limit: int = 50, offset: int = 0):
     """Get generation history."""
-    items = _history[offset:offset + limit]
-    return HistoryListResponse(items=items, total=len(_history))
+    items = store.get_history(limit, offset)
+    return HistoryListResponse(items=items, total=store.history_total())
 
 
 @router.delete("/api/history/{record_id}")
 async def delete_history(record_id: str):
     """Delete a history record."""
-    global _history
-    original_len = len(_history)
-    _history = [h for h in _history if h.id != record_id]
-    if len(_history) == original_len:
+    deleted = store.delete_history(record_id)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"message": "Record deleted"}
