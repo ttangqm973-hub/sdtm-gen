@@ -1,0 +1,22 @@
+{% include 'domain_header.sas.j2' %}
+
+data sdtm.{{ domain }};
+    attrib
+        STUDYID length=$20 label="Study Identifier"
+        DOMAIN length=$2 label="Domain Abbreviation"
+        USUBJID length=$20 label="Unique Subject Identifier"
+        IDVAR length=$8 label="Identifying Variable"
+        IDVARVAL length=$40 label="Identifying Variable Value"
+        QNAM length=$8 label="Qualifier Variable Name"
+        QLABEL length=$40 label="Qualifier Variable Label"
+        QVAL length=$40 label="Data Value"
+        QORIG label="Origin"
+    ;
+
+    set raw.supp_raw;
+
+    STUDYID = "&STUDYID.";
+    DOMAIN = "{{ parent_domain }}";
+    QORIG = "CRF";
+
+run;

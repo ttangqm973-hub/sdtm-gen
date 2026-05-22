@@ -1,0 +1,92 @@
+{% include 'domain_header.sas.j2' %}
+
+*** {{ domain }} - {{ domain_label }} ***;
+%pre(var={{ domain|lower }});
+
+data {{ domain|lower }}1;
+    set {{ domain|lower }};
+    where _{{ domain }}YN="Yes" and _{{ domain }}TERM ne '';
+
+    length STUDYID USUBJID $200;
+    STUDYID=strip(_PROJECT);
+    USUBJID=strip(STUDYID)||'-'||strip(SITEID)||'-'||strip(SUBJID);
+
+    /* Variable assignments */
+{% for var in variables %}
+{% if var.origin == 'Assigned' and var.name not in ['DOMAIN', 'STUDYID', 'USUBJID'] %}
+    {{ var.name }} = "&{{ var.name }}.";
+{% elif var.origin == 'CRF' and var.codelist %}
+    if strip(_{{ var.name }})="Yes" then {{ var.name }}='Y';
+    else if strip(_{{ var.name }})="No" then {{ var.name }}='N';
+{% elif var.origin == 'CRF' %}
+    {{ var.name }}=strip(_{{ var.name }});
+{% elif var.generation == 'ai_required' %}
+    /* [AI-GEN-START] domain={{ domain }} variable={{ var.name }} */
+    /* algorithm: {{ var.algorithm }} */
+    /* TODO: AI-generated logic for {{ var.name }} */
+    /* [AI-GEN-END] */
+{% endif %}
+{% endfor %}
+
+    /* Date variables */
+{% for var in variables %}
+{% if 'DTC' in var.name or 'DAT' in var.name %}
+    %date(invar=_{{ var.name }}_RAW,outvar={{ var.name }});
+{% endif %}
+{% endfor %}
+
+    DOMAIN="{{ domain }}";
+    drop _:;
+run;
+
+proc sort data={{ domain|lower }}1;
+    by studyid usubjid;
+run;
+
+/**********---------- Create Final Dataset ----------**********/
+data final;
+    set {{ domain|lower }}1;
+    by studyid usubjid;
+    if first.usubjid then {{ domain }}SEQ=0;
+    {{ domain }}SEQ+1;
+run;
+
+%msdtm_attrib(indsn=final,outdsn=sdtm.{{ domain }},domain={{ domain }});
+
+/**********---------- SUPP{{ domain }} ----------**********/
+{% if supp_vars %}
+proc transpose data=final out=supp prefix=col;
+    by usubjid {{ domain }}seq;
+    var {{ supp_vars|join(' ') }};
+run;
+
+data supp{{ domain|lower }};
+    set supp(where=(col1 ne ""));
+    STUDYID="&studyid.";
+    length rdomain idvar idvarval qnam qlabel qval qorig qeval $200;
+    rdomain="{{ domain }}";
+    idvar="{{ domain }}SEQ";
+    idvarval=strip(put({{ domain }}seq,best.));
+    qnam=strip(upcase(_name_));
+    qlabel=strip(put(_name_,$label.));
+    qval=strip(col1);
+    qorig='CRF';
+    qeval='';
+    drop _name_ col1;
+run;
+
+proc sort data=supp{{ domain|lower }};
+    by studyid rdomain usubjid idvar idvarval qnam;
+run;
+
+%msdtm_attrib(indsn=supp{{ domain|lower }},outdsn=sdtm.supp{{ domain }},domain=supp{{ domain }});
+{% endif %}
+
+*** XPT ***;
+%sdtm_xpt(indata={{ domain }},in=sdtm,out=%str(&psdtm\xpt),nocontent=);
+{% if supp_vars %}
+%sdtm_xpt(indata=supp{{ domain }},in=sdtm,out=%str(&psdtm\xpt),nocontent=);
+{% endif %}
+
+*** check log ***;
+%mchecklog(in=SDTM, name={{ domain }});

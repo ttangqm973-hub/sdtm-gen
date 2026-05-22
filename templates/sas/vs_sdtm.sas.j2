@@ -1,0 +1,36 @@
+{% include 'domain_header.sas.j2' %}
+
+data sdtm.{{ domain }};
+    attrib
+{% for var in variables %}
+        {{ var.name }} length={% if var.type == 'Char' %}${% endif %}{{ var.length }} label="{{ var.label }}"
+{% endfor %}
+    ;
+
+    set raw.vs_raw;
+
+{% for var in variables %}
+{% if var.origin == 'Assigned' and var.name != 'DOMAIN' %}
+    {{ var.name }} = "&{{ var.name }}.";
+{% elif var.origin == 'Predecessor' %}
+    {{ var.name }} = raw_{{ var.name }};
+{% elif var.origin == 'CRF' and var.codelist %}
+    select (raw_{{ var.name }});
+{% for code, decode in var.codelist.items() %}
+        when ("{{ code }}") {{ var.name }} = "{{ decode }}";
+{% endfor %}
+        otherwise {{ var.name }} = raw_{{ var.name }};
+    end;
+{% elif var.origin == 'CRF' %}
+    {{ var.name }} = raw_{{ var.name }};
+{% elif var.generation == 'ai_required' %}
+    /* [AI-GEN-START] domain={{ domain }} variable={{ var.name }} */
+    /* algorithm: {{ var.algorithm }} */
+    /* TODO: AI-generated logic for {{ var.name }} */
+    /* [AI-GEN-END] */
+{% endif %}
+{% endfor %}
+
+    DOMAIN = "{{ domain }}";
+
+run;

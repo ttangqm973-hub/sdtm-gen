@@ -1,0 +1,121 @@
+{% include 'domain_header.sas.j2' %}
+
+*** DM - Demographics ***;
+%pre(var=dm);
+
+data si;
+    length studyid usubjid $200;
+    set raw.si(drop=studyid siteid subjid);
+    keep studyid usubjid subjid siteid subject sitename;
+    studyid=strip(project);
+    siteid=strip(sitenum);
+    usubjid=strip(studyid)||'-'||strip(siteid)||'-'||strip(subject);
+    subjid=subject;
+    sitename=prxchange('s/(\d+_)//',-1,strip(site));
+    informat _all_; format _all_;
+run;
+
+proc sort data=si;
+    by subject;
+run;
+
+data dm1;
+    set raw.dm(rename=(race=ethnic));
+    keep subject sex age ageu ethnic ethnioth race brthdtc country;
+
+    if age>. then ageu='YEARS';
+    race='ASIAN';
+    country='CHN';
+
+    /* Sex mapping */
+    if upcase(sex)='MALE' then sex='M';
+    else if upcase(sex)='FEMALE' then sex='F';
+
+    /* Birth date */
+    %date(yy=brthdat_yyyy,mm=brthdat_mm,dd=brthdat_dd,outvar=brthdtc);
+run;
+
+proc sort data=dm1;
+    by subject;
+run;
+
+proc sort data=sdtm.dm(keep=USUBJID SUBJID ARMCD RFXSTDTC RFXENDTC RFSTDTC) out=dm_ref;
+    by usubjid;
+run;
+
+data dm2;
+    merge dm1(in=a) si dm_ref;
+    by subject;
+    if a;
+
+    /* Treatment assignment */
+    length ARM ARMCD ACTARM ACTARMCD $50;
+
+    /* [AI-GEN-START] domain=DM variable=ARM/ARMCD */
+    /* Treatment assignment logic - project specific */
+    /* TODO: Implement treatment assignment based on randomization */
+    /* [AI-GEN-END] */
+
+    ACTARM=ARM;
+    ACTARMCD=ARMCD;
+
+    DOMAIN='DM';
+run;
+
+proc sort data=dm2;
+    by studyid usubjid;
+run;
+
+/**********---------- Create Final Dataset ----------**********/
+data final;
+    set dm2;
+    by studyid usubjid;
+run;
+
+%msdtm_attrib(indsn=final,outdsn=sdtm.DM,domain=DM);
+
+/**********---------- SUPPDM ----------**********/
+data suppdm;
+    set final(keep=studyid usubjid sitename ethnioth);
+    where sitename ne '' or ethnioth ne '';
+
+    length rdomain idvar idvarval qnam qlabel qval qorig qeval $200;
+    rdomain='DM';
+    idvar='';
+    idvarval='';
+
+    /* Site name */
+    if sitename ne '' then do;
+        qnam='SITENAME';
+        qlabel='Site Name';
+        qval=strip(sitename);
+        qorig='eDT';
+        qeval='';
+        output;
+    end;
+
+    /* Ethnic other */
+    if ethnioth ne '' then do;
+        qnam='ETHNIOTH';
+        qlabel='Other Ethnicity';
+        qval=strip(ethnioth);
+        qorig='CRF';
+        qeval='';
+        output;
+    end;
+
+    keep studyid rdomain usubjid idvar idvarval qnam qlabel qval qorig qeval;
+run;
+
+proc sort data=suppdm;
+    by studyid rdomain usubjid qnam;
+run;
+
+%msdtm_attrib(indsn=suppdm,outdsn=sdtm.suppDM,domain=suppDM);
+
+*** XPT ***;
+%sdtm_xpt(indata=DM,in=sdtm,out=%str(&psdtm\xpt),nocontent=);
+%sdtm_xpt(indata=suppDM,in=sdtm,out=%str(&psdtm\xpt),nocontent=);
+
+*** check log ***;
+%mchecklog(in=SDTM, name=DM);

@@ -1,0 +1,9 @@
+VARIABLE,LABEL,TYPE,LENGTH,CODELIST,ORIGIN,ALGORITHM,CONDITION,COMMENT
+STUDYID,Study Identifier,Char,20,,Assigned,,,
+USUBJID,Unique Subject Identifier,Char,20,,Predecessor,,,
+AESEQ,Sequence Number,Num,8,,Assigned,,,
+AETERM,Reported Term for AE,Char,200,,CRF,,,
+AEDECOD,Dictionary-Derived Term,Char,200,,CRF,,,
+AESER,Serious Event,Char,1,"Y=是;N=否",CRF,,,
+AEOUT,Outcome of AE,Char,40,"FATAL=死亡;RECOVERED=恢复",CRF,,,
+AEREL,Causality,Char,1,,Derived,"若 AEOUT='FATAL' 则 AEREL='Y'；若合并用药在30天内 则 AEREL='P'",,
