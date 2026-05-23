@@ -19,7 +19,10 @@ class TemplateRenderer:
     def render(self, domain_ir, template_name: str = None) -> str:
         if template_name is None:
             template_name = f"{domain_ir.domain.lower()}_sdtm.sas.j2"
-        template = self.env.get_template(template_name)
+        try:
+            template = self.env.get_template(template_name)
+        except Exception:
+            template = self.env.get_template("generic_sdtm.sas.j2")
 
         # 构建 AI 生成代码映射
         ai_code_map = {}
@@ -35,6 +38,7 @@ class TemplateRenderer:
             cross_domain_refs=domain_ir.cross_domain_refs,
             generation_date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             ai_summary=domain_ir.ai_summary,
+            supp_qualifiers=domain_ir.supp_qualifiers,
         )
 
         # 后处理：替换 AI-GEN 标记

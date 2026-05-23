@@ -1,5 +1,6 @@
 import re
 from parser.column_mapper import ColumnMapper
+from parser.source_algorithm_parser import parse_source_algorithm
 from ir.models import Variable, DomainIR
 from config import DOMAIN_LABELS
 
@@ -18,6 +19,9 @@ class IRBuilder:
             mapped = self.mapper.map_row(row, column_mapping)
             generation = self._determine_generation(mapped)
 
+            source_algo = str(mapped.get("source_algorithm", "")).strip()
+            parsed = parse_source_algorithm(source_algo) if source_algo else None
+
             variable = Variable(
                 seq=seq,
                 name=mapped.get("variable_name", ""),
@@ -28,11 +32,13 @@ class IRBuilder:
                 generation=generation,
                 codelist=mapped.get("codelist_parsed"),
                 algorithm=mapped.get("algorithm_text") if mapped.get("algorithm_text") else None,
+                source_algorithm=source_algo if source_algo else None,
+                raw_source=parsed.raw_source if parsed and parsed.raw_source else None,
                 comment=mapped.get("comment"),
             )
 
             if generation == "ai_required":
-                variable.ai_context = self._build_ai_context(mapped)
+                variable.ai_context = self._build_ai_context(mapped, parsed)
 
             variables.append(variable)
 
@@ -55,8 +61,14 @@ class IRBuilder:
         algorithm = str(mapped.get("algorithm_text", "")).strip()
         source = str(mapped.get("source_algorithm", "")).strip()
 
+        # Parse source_algorithm to determine if template can handle it
+        parsed = parse_source_algorithm(source) if source else None
+
         if origin == "Derived":
             if algorithm or source:
+                # If source_algorithm is simple enough for template, return template
+                if parsed and parsed.is_templateable:
+                    return "template"
                 algo_lower = (algorithm + " " + source).lower()
                 simple_patterns = [
                     r"concat\s*\(",
@@ -82,6 +94,45 @@ class IRBuilder:
             return "template"
 
         return "template"
+
+    def _build_ai_context(self, mapped: dict, parsed=None) -> dict:
+        """Build AI context for derived variables."""
+        algorithm = str(mapped.get("algorithm_text", "")).strip()
+        source = str(mapped.get("source_algorithm", "")).strip()
+        algo = (algorithm + " " + source).strip()
+
+        if parsed and parsed.pattern in ("direct_assign", "cross_ref"):
+            algo = source  # Use only source_algorithm context for simple patterns
+
+        related_vars = []
+        var_pattern = re.findall(r'\b([A-Z]{2,}\.)?([A-Z][A-Z0-9_]{1,7})\b', algo)
+        for prefix, name in var_pattern:
+            if name not in ("IF", "THEN", "ELSE", "AND", "OR", "NOT", "DO", "END", "WHEN"):
+                related_vars.append(name)
+
+        related_domains = []
+        domain_pattern = re.findall(r'\b(AE|DM|CM|LB|VS|EX|MH|EG|PE|DS|SV|IE|QS|RS|TR|TU|PR|FA|CO)\b', algo.upper())
+        related_domains = list(set(domain_pattern))
+
+        logic_type = "conditional_derivation"
+        algo_lower = algo.lower()
+        if "date" in algo_lower or "dtc" in algo_lower:
+            logic_type = "date_derivation"
+        elif parsed and parsed.pattern == "cross_ref":
+            logic_type = "cross_domain_reference"
+        elif parsed and parsed.pattern == "direct_assign":
+            logic_type = "direct_assignment"
+        elif "merge" in algo_lower or "join" in algo_lower:
+            logic_type = "cross_domain_merge"
+        elif "sum" in algo_lower or "count" in algo_lower:
+            logic_type = "aggregation"
+
+        return {
+            "related_vars": list(set(related_vars)),
+            "related_domains": related_domains,
+            "logic_type": logic_type,
+            "algorithm_text": algo,
+        }
 
     def _safe_type(self, raw) -> str:
         """Convert type string to standard form."""
@@ -125,36 +176,6 @@ class IRBuilder:
 
         return "Assigned"
 
-    def _build_ai_context(self, mapped: dict) -> dict:
-        """Build AI context for derived variables."""
-        algo = str(mapped.get("algorithm_text", "")) + " " + str(mapped.get("source_algorithm", ""))
-
-        related_vars = []
-        var_pattern = re.findall(r'\b([A-Z]{2,}\.)?([A-Z][A-Z0-9_]{1,7})\b', algo)
-        for prefix, name in var_pattern:
-            if name not in ("IF", "THEN", "ELSE", "AND", "OR", "NOT", "DO", "END", "WHEN"):
-                related_vars.append(name)
-
-        related_domains = []
-        domain_pattern = re.findall(r'\b(AE|DM|CM|LB|VS|EX|MH|EG|PE|DS|SV|IE|QS|RS|TR|TU|PR|FA|CO)\b', algo.upper())
-        related_domains = list(set(domain_pattern))
-
-        logic_type = "conditional_derivation"
-        algo_lower = algo.lower()
-        if "date" in algo_lower or "dtc" in algo_lower:
-            logic_type = "date_derivation"
-        elif "merge" in algo_lower or "join" in algo_lower:
-            logic_type = "cross_domain_merge"
-        elif "sum" in algo_lower or "count" in algo_lower:
-            logic_type = "aggregation"
-
-        return {
-            "related_vars": list(set(related_vars)),
-            "related_domains": related_domains,
-            "logic_type": logic_type,
-            "algorithm_text": algo.strip(),
-        }
-
     def _analyze_cross_domain_refs(self, domain_ir: DomainIR):
         """Analyze cross-domain references."""
         cross_refs = set()
@@ -167,7 +188,7 @@ class IRBuilder:
         """Detect required macro references."""
         macro_refs = []
         for var in domain_ir.variables:
-            algo = var.algorithm or ""
+            algo = (var.algorithm or "") + " " + (var.source_algorithm or "")
             if "date" in algo.lower() or "dtc" in algo.lower():
                 if "date" not in macro_refs:
                     macro_refs.append("date")

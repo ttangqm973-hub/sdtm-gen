@@ -26,6 +26,7 @@ SPEC_COLUMN_ALIASES = {
     "origin": ["Origin", "ORIGIN"],
     "codelist_name": ["CT/CodeListID", "CODELIST", "Codelist", "CodeList"],
     "algorithm_text": ["Algorithm for Programming", "ALGORITHM", "Algorithm"],
+    "source_algorithm": ["Source/Algorithm", "Source Algorithm", "SOURCE", "Source"],
 }
 
 # SAS Domain Labels
@@ -58,13 +59,60 @@ DOMAIN_LABELS = {
     "SUPPAE": "Supplemental Qualifiers for AE",
     "SUPPDM": "Supplemental Qualifiers for DM",
     "SUPPCM": "Supplemental Qualifiers for CM",
+    "SUPPLB": "Supplemental Qualifiers for LB",
+    "SUPPVS": "Supplemental Qualifiers for VS",
+    "SUPPEX": "Supplemental Qualifiers for EX",
+    "SUPPMH": "Supplemental Qualifiers for MH",
+    "SUPPEG": "Supplemental Qualifiers for EG",
+    "SUPPPE": "Supplemental Qualifiers for PE",
+    "SUPPDS": "Supplemental Qualifiers for DS",
+    "SUPPSV": "Supplemental Qualifiers for SV",
+    "SUPPIE": "Supplemental Qualifiers for IE",
+    "SUPPQS": "Supplemental Qualifiers for QS",
+    "SUPPRS": "Supplemental Qualifiers for RS",
+    "SUPPTR": "Supplemental Qualifiers for TR",
+    "SUPPTU": "Supplemental Qualifiers for TU",
+    "SUPPPR": "Supplemental Qualifiers for PR",
+    "SUPPFA": "Supplemental Qualifiers for FA",
+    "SUPPCO": "Supplemental Qualifiers for CO",
+    "SUPPDD": "Supplemental Qualifiers for DD",
+    "SUPPDV": "Supplemental Qualifiers for DV",
+    "SUPPSE": "Supplemental Qualifiers for SE",
+    "SUPPSS": "Supplemental Qualifiers for SS",
+    "SUPPSU": "Supplemental Qualifiers for SU",
+    "SUPPPC": "Supplemental Qualifiers for PC",
+    "SUPPIS": "Supplemental Qualifiers for IS",
+    "SUPPPF": "Supplemental Qualifiers for PF",
+    "SUPPCV": "Supplemental Qualifiers for CV",
+    "SUPPXO": "Supplemental Qualifiers for XO",
+    "SUPPMI": "Supplemental Qualifiers for MI",
+    "SUPPEC": "Supplemental Qualifiers for EC",
 }
+
+# SUPP ↔ Parent domain mapping (for auto-association)
+SUPP_PARENT_MAP = {
+    "SUPPAE": "AE", "SUPPDM": "DM", "SUPPCM": "CM",
+    "SUPPLB": "LB", "SUPPVS": "VS", "SUPPEX": "EX",
+    "SUPPMH": "MH", "SUPPEG": "EG", "SUPPPE": "PE",
+    "SUPPDS": "DS", "SUPPSV": "SV", "SUPPIE": "IE",
+    "SUPPQS": "QS", "SUPPRS": "RS", "SUPPTR": "TR",
+    "SUPPTU": "TU", "SUPPPR": "PR", "SUPPFA": "FA",
+    "SUPPCO": "CO", "SUPPDD": "DD", "SUPPDV": "DV",
+    "SUPPSE": "SE", "SUPPSS": "SS", "SUPPSU": "SU",
+    "SUPPPC": "PC", "SUPPIS": "IS", "SUPPPF": "PF",
+    "SUPPCV": "CV", "SUPPXO": "XO", "SUPPMI": "MI",
+    "SUPPEC": "EC",
+}
+
+# Reverse map: parent → SUPP
+PARENT_SUPP_MAP = {v: k for k, v in SUPP_PARENT_MAP.items()}
 
 # Supported domains for template generation
 SUPPORTED_DOMAINS = [
     "DM", "AE", "CM", "LB", "VS", "EX", "MH", "EG", "PE",
     "DS", "SV", "IE", "QS", "RS", "TR", "TU", "PR", "FA",
     "CO", "DD", "DV", "SE", "SS", "SU", "RELREC",
+    "SUPPAE", "SUPPDM", "SUPPCM",
 ]
 
 # Macro Library Configuration

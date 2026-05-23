@@ -16,9 +16,11 @@ async function _fetch(url, options = {}) {
     return res.json();
 }
 
-async function uploadSpec(file) {
+async function uploadSpec(files) {
     const form = new FormData();
-    form.append('file', file);
+    for (const file of files) {
+        form.append('files', file);
+    }
     const res = await fetch(API_BASE + '/api/upload', {
         method: 'POST',
         body: form,

@@ -57,6 +57,62 @@ class RAGPipeline:
             return {"status": "exists", "count": current_count}
 
         # 处理知识库文件
+        all_chunks = self._scan_all_files()
+
+        # 清空现有数据
+        self.vector_store.delete_collection("knowledge")
+
+        # 添加到向量库
+        added = self.vector_store.add_chunks(all_chunks, "knowledge")
+
+        return {
+            "status": "built",
+            "total_chunks": len(all_chunks),
+            "added": added
+        }
+
+    def add_to_knowledge_base(self, file_path: str) -> dict:
+        """增量添加单个文件到知识库（不清空现有数据）。
+
+        Returns dict with status, file, chunks_added.
+        """
+        import os
+        from pathlib import Path
+
+        file_path = str(file_path)
+        if not os.path.exists(file_path):
+            return {"status": "error", "error": f"File not found: {file_path}"}
+
+        ext = Path(file_path).suffix.lower()
+        chunks = []
+
+        # Auto-detect file type by extension and location
+        if ext == ".sas":
+            chunks = self.processor.sas_parser.parse_file(file_path)
+        elif ext in (".txt", ".macro"):
+            chunks = self.processor.macro_parser.parse_file(file_path)
+        elif ext in (".xlsx", ".xls"):
+            chunks = self.processor.spec_parser.parse_file(file_path)
+        elif ext == ".pdf":
+            parser = self.processor._get_sdtm_ig_parser()
+            chunks = parser.parse_file(file_path)
+        else:
+            return {"status": "error", "error": f"Unsupported file type: {ext}"}
+
+        if not chunks:
+            return {"status": "empty", "file": os.path.basename(file_path), "chunks_added": 0}
+
+        added = self.vector_store.add_chunks(chunks, "knowledge")
+        return {
+            "status": "added",
+            "file": os.path.basename(file_path),
+            "chunks_found": len(chunks),
+            "chunks_added": added,
+            "total_count": self.vector_store.count("knowledge"),
+        }
+
+    def _scan_all_files(self) -> list:
+        """扫描知识库目录中的所有文件，返回 chunks 列表（不修改向量库）。"""
         all_chunks = []
 
         # SAS 代码
@@ -92,17 +148,7 @@ class RAGPipeline:
             except Exception as e:
                 print(f"Error processing SDTM IG: {e}")
 
-        # 清空现有数据
-        self.vector_store.delete_collection("knowledge")
-
-        # 添加到向量库
-        added = self.vector_store.add_chunks(all_chunks, "knowledge")
-
-        return {
-            "status": "built",
-            "total_chunks": len(all_chunks),
-            "added": added
-        }
+        return all_chunks
 
     def retrieve(
         self,

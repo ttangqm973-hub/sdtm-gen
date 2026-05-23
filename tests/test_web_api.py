@@ -23,7 +23,7 @@ class TestUpload:
         with open(ae_spec_path, "rb") as f:
             response = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         assert response.status_code == 200
         data = response.json()
@@ -43,7 +43,7 @@ class TestGenerate:
         with open(ae_spec_path, "rb") as f:
             upload_resp = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         upload_id = upload_resp.json()["upload_id"]
 
@@ -75,7 +75,7 @@ class TestStatus:
         with open(ae_spec_path, "rb") as f:
             upload_resp = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         upload_id = upload_resp.json()["upload_id"]
 
@@ -116,7 +116,7 @@ class TestDownload:
         with open(ae_spec_path, "rb") as f:
             upload_resp = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         upload_id = upload_resp.json()["upload_id"]
 
@@ -152,7 +152,7 @@ class TestDownload:
         with open(ae_spec_path, "rb") as f:
             upload_resp = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         upload_id = upload_resp.json()["upload_id"]
 
@@ -199,7 +199,7 @@ class TestHistory:
         with open(ae_spec, "rb") as f:
             upload_resp = client.post(
                 "/api/upload",
-                files={"file": ("ae_spec.csv", f, "text/csv")},
+                files=[("files", ("ae_spec.csv", f, "text/csv"))],
             )
         upload_id = upload_resp.json()["upload_id"]
 

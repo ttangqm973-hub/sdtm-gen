@@ -61,7 +61,7 @@ const btnGenerate = document.getElementById('btn-generate');
 dropZone.addEventListener('click', () => fileInput.click());
 
 fileInput.addEventListener('change', () => {
-    if (fileInput.files.length) handleFile(fileInput.files[0]);
+    if (fileInput.files.length) handleFiles(fileInput.files);
 });
 
 dropZone.addEventListener('dragover', e => {
@@ -76,12 +76,12 @@ dropZone.addEventListener('dragleave', () => {
 dropZone.addEventListener('drop', e => {
     e.preventDefault();
     dropZone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
 });
 
-async function handleFile(file) {
+async function handleFiles(files) {
     try {
-        const data = await uploadSpec(file);
+        const data = await uploadSpec(files);
         state.uploadId = data.upload_id;
         state.detectedDomains = data.domains_detected || [];
         state.selectedDomains = new Set(state.detectedDomains);
@@ -93,7 +93,7 @@ async function handleFile(file) {
 
         renderDomainList();
         btnGenerate.disabled = state.selectedDomains.size === 0;
-        showToast('上传成功');
+        showToast(data.message || '上传成功');
     } catch (err) {
         showToast('上传失败: ' + err.message, 'error');
     }

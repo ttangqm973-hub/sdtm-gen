@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from batch.study_config import StudyConfig
+from config import SUPP_PARENT_MAP, PARENT_SUPP_MAP
 from generator.sas_generator import SASGenerator
-from ir.models import DomainIR
+from ir.models import DomainIR, SuppQualifier
 from lint.sas_linter import SASLinter
 from parser.excel_reader import ExcelReader
 from parser.ir_builder import IRBuilder
@@ -79,6 +80,10 @@ class BatchScheduler:
         # 初始化 Linter
         linter = SASLinter() if config.lint_enabled else None
 
+        # 预加载 SUPP qualifiers（主/附数据集关联）
+        spec_dir = os.path.dirname(os.path.abspath(spec_file))
+        supp_qualifiers_map = self._load_supp_qualifiers(spec_dir, domains_to_process)
+
         # 并发生成
         generator = SASGenerator(str(output_dir))
         results = []
@@ -89,7 +94,8 @@ class BatchScheduler:
             # 单域不需要线程池
             domain, rows = domains_to_process[0]
             result = self._process_domain(
-                domain, rows, generator, rag_pipeline, linter, config
+                domain, rows, generator, rag_pipeline, linter, config,
+                supp_qualifiers_map.get(domain.upper(), []),
             )
             results.append(result)
             completed_count += 1
@@ -100,7 +106,8 @@ class BatchScheduler:
                 futures = {
                     executor.submit(
                         self._process_domain,
-                        domain, rows, generator, rag_pipeline, linter, config
+                        domain, rows, generator, rag_pipeline, linter, config,
+                        supp_qualifiers_map.get(domain.upper(), []),
                     ): domain
                     for domain, rows in domains_to_process
                 }
@@ -153,7 +160,8 @@ class BatchScheduler:
         filename_clean = filename.replace("_SPEC", "").replace("_spec", "")
         if filename_clean in SDTM_DOMAINS:
             return filename_clean
-        return sheet_name.upper()
+        # sheet 名不是 SDTM 域（如 "Variable", "Values"），从文件名推断
+        return filename_clean
 
     def _init_rag(self, config: StudyConfig):
         """初始化 RAG 流水线"""
@@ -180,7 +188,8 @@ class BatchScheduler:
         generator: SASGenerator,
         rag_pipeline,
         linter,
-        config: StudyConfig
+        config: StudyConfig,
+        supp_qualifiers: list[SuppQualifier] = None,
     ) -> dict:
         """处理单个域，返回结果字典"""
         result = {
@@ -194,6 +203,10 @@ class BatchScheduler:
 
         try:
             domain_ir = self.builder.build(domain, rows)
+
+            # 附加 SUPP qualifiers
+            if supp_qualifiers:
+                domain_ir.supp_qualifiers = list(supp_qualifiers)
 
             # 合并全局宏引用
             if config.global_macro_refs:
@@ -238,3 +251,65 @@ class BatchScheduler:
             result["error"] = str(e)
 
         return result
+
+    def _load_supp_qualifiers(
+        self, spec_dir: str, domains_to_process: list[tuple]
+    ) -> dict[str, list[SuppQualifier]]:
+        """Scan for paired SUPPxx files and parse their Values sheets.
+
+        Returns a dict mapping parent domain → list of SuppQualifier.
+        """
+        def _get_col(row: dict, *names: str) -> str:
+            """Flexible column lookup — matches prefix (e.g. 'QNAM' matches 'QNAM(IDVAR)')."""
+            for name in names:
+                if name in row:
+                    return str(row[name]).strip()
+                for key in row:
+                    if key.upper().startswith(name.upper()):
+                        return str(row[key]).strip()
+            return ""
+
+        supp_map: dict[str, list[SuppQualifier]] = {}
+
+        for domain, _ in domains_to_process:
+            supp_domain = PARENT_SUPP_MAP.get(domain.upper())
+            if not supp_domain:
+                continue
+
+            supp_file = os.path.join(spec_dir, f"{supp_domain}.xlsx")
+            if not os.path.exists(supp_file):
+                # Also try SUPPxx.xlsx naming
+                supp_file = os.path.join(spec_dir, f"{supp_domain.upper()}.xlsx")
+            if not os.path.exists(supp_file):
+                continue
+
+            try:
+                sheets = self.reader.read(supp_file)
+                values_rows = sheets.get("Values", [])
+                if not values_rows:
+                    continue
+
+                qualifiers = []
+                for row in values_rows:
+                    qnam = _get_col(row, "QNAM")
+                    if not qnam:
+                        continue
+                    source_algo = _get_col(row, "Source/Algorithm", "Source Algorithm")
+                    from parser.source_algorithm_parser import parse_source_algorithm
+                    parsed = parse_source_algorithm(source_algo) if source_algo else None
+
+                    qualifiers.append(SuppQualifier(
+                        qnam=qnam,
+                        qlabel=_get_col(row, "QLABEL"),
+                        origin=_get_col(row, "Origin") or "CRF",
+                        source_algorithm=source_algo,
+                        result_var=_get_col(row, "Result Variable", "Result_variable") or "QVAL",
+                        raw_source=parsed.raw_source if parsed else None,
+                        sub_part=parsed.substring_part if parsed else None,
+                        direct_value=parsed.direct_value if parsed else None,
+                    ))
+                supp_map[domain.upper()] = qualifiers
+            except Exception:
+                pass  # SUPP loading failure is non-fatal
+
+        return supp_map

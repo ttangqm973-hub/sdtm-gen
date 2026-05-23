@@ -255,6 +255,40 @@ def build_kb(kb_path, force, mock, verbose):
 
 
 @cli.command()
+@click.argument("file_path", type=click.Path(exists=True))
+@click.option("--kb-path", default="D:/Claude code/Knowlegde base", help="Knowledge base path")
+@click.option("--mock", is_flag=True, help="Use mock embedder (testing only)")
+@click.option("-v", "--verbose", is_flag=True, help="Verbose output")
+def kb_add(file_path, kb_path, mock, verbose):
+    """Add a single file to the knowledge base (incremental, no rebuild).
+
+    FILE_PATH: Path to a SAS, Macro, SPEC Excel, or SDTM IG PDF file.
+    """
+    try:
+        from rag import create_pipeline
+    except ImportError as e:
+        click.echo(f"Error: RAG module not available: {e}", err=True)
+        sys.exit(1)
+
+    pipeline = create_pipeline(
+        knowledge_base_path=kb_path,
+        use_mock_llm=mock
+    )
+
+    if verbose:
+        click.echo(f"Adding file to knowledge base: {file_path}")
+
+    result = pipeline.add_to_knowledge_base(file_path)
+
+    if result["status"] == "error":
+        click.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+        sys.exit(1)
+
+    click.echo(f"Added {result['chunks_added']} chunk(s) from {result['file']}")
+    click.echo(f"Total chunks in knowledge base: {result.get('total_count', 'N/A')}")
+
+
+@cli.command()
 @click.argument("sas_file", type=click.Path(exists=True))
 @click.option("--json", "output_json", is_flag=True, help="Output in JSON format")
 def lint(sas_file, output_json):

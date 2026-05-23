@@ -5,7 +5,6 @@
 
 data {{ domain|lower }}1;
     set {{ domain|lower }};
-    where _{{ domain }}YN="Yes" and _{{ domain }}TERM ne '';
 
     length STUDYID USUBJID $200;
     STUDYID=strip(_PROJECT);

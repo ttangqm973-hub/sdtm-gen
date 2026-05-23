@@ -126,45 +126,64 @@ def _run_job_sync(
 
 
 @router.post("/api/upload", response_model=UploadResponse)
-async def upload_spec(file: UploadFile = File(...)):
-    """Upload a SPEC Excel/CSV file."""
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided")
+async def upload_spec(files: list[UploadFile] = File(...)):
+    """Upload one or more SPEC Excel/CSV files. All files stored in the same directory for SUPP pairing."""
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
 
     upload_id = _generate_id()
     upload_dir = TEMP_DIR / "uploads" / upload_id
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    file_path = upload_dir / file.filename
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    filenames = []
+    domains = []
+    primary_spec_path = None
 
-    # Detect domains
+    for file in files:
+        if not file.filename:
+            continue
+        file_path = upload_dir / file.filename
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        filenames.append(file.filename)
+
+    # Detect domains from the first valid SPEC file (has Variable sheet)
     reader = ExcelReader()
-    try:
-        sheets = reader.read(str(file_path))
-        from batch.scheduler import _is_variable_sheet, BatchScheduler
-        scheduler = BatchScheduler()
-        domains = []
-        for name, rows in sheets.items():
-            if _is_variable_sheet(rows):
-                actual_domain = scheduler._resolve_domain(name, str(file_path))
-                if actual_domain not in domains:
-                    domains.append(actual_domain)
-    except Exception:
-        domains = []
+    from batch.scheduler import _is_variable_sheet, BatchScheduler
+    scheduler = BatchScheduler()
+
+    for filename in filenames:
+        file_path = upload_dir / filename
+        try:
+            sheets = reader.read(str(file_path))
+            for name, rows in sheets.items():
+                if _is_variable_sheet(rows):
+                    actual_domain = scheduler._resolve_domain(name, str(file_path))
+                    # Skip SUPPxx domains — they are auto-associated with parent domains
+                    if actual_domain not in domains and not actual_domain.upper().startswith('SUPP'):
+                        domains.append(actual_domain)
+                    if primary_spec_path is None:
+                        primary_spec_path = str(file_path)
+        except Exception:
+            pass
+
+    if primary_spec_path is None and filenames:
+        primary_spec_path = str(upload_dir / filenames[0])
 
     _uploads[upload_id] = {
-        "path": str(file_path),
-        "filename": file.filename,
+        "path": primary_spec_path or str(upload_dir),
+        "spec_dir": str(upload_dir),
+        "filename": filenames[0] if len(filenames) == 1 else f"{len(filenames)} files",
+        "filenames": filenames,
         "domains": domains,
     }
 
     return UploadResponse(
         upload_id=upload_id,
-        filename=file.filename,
+        filename=_uploads[upload_id]["filename"],
         domains_detected=domains,
+        message=f"Uploaded {len(filenames)} file(s)",
     )
 
 
@@ -318,3 +337,58 @@ async def delete_history(record_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Record not found")
     return {"message": "Record deleted"}
+
+
+# Lazy-initialized RAG pipeline for KB uploads
+_kb_pipeline = None
+
+
+def _get_kb_pipeline(kb_path: str = "D:/Claude code/Knowlegde base"):
+    """Get or create the RAG pipeline for knowledge base operations."""
+    global _kb_pipeline
+    if _kb_pipeline is None:
+        from rag.pipeline import RAGPipeline
+        _kb_pipeline = RAGPipeline(knowledge_base_path=kb_path)
+    return _kb_pipeline
+
+
+@router.post("/api/kb/upload")
+async def kb_upload(file: UploadFile = File(...), kb_path: str = "D:/Claude code/Knowlegde base"):
+    """Upload a single file to the knowledge base (incremental add)."""
+    import os
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in (".sas", ".txt", ".xlsx", ".xls", ".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {ext}. Supported: .sas, .txt, .xlsx, .pdf",
+        )
+
+    kb_dir = TEMP_DIR / "kb_uploads"
+    kb_dir.mkdir(parents=True, exist_ok=True)
+
+    file_path = kb_dir / file.filename
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    try:
+        pipeline = _get_kb_pipeline(kb_path)
+        result = pipeline.add_to_knowledge_base(str(file_path))
+
+        if result["status"] == "error":
+            raise HTTPException(status_code=400, detail=result.get("error", "Unknown error"))
+
+        return {
+            "filename": file.filename,
+            "status": result["status"],
+            "chunks_added": result.get("chunks_added", 0),
+            "total_count": result.get("total_count", 0),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"KB add failed: {str(e)}")

@@ -328,23 +328,30 @@ class SpecParser:
                 var_label = self._get_col_value(row, header_map, 'varlabel', 'label')
                 origin = self._get_col_value(row, header_map, 'origin')
                 algorithm = self._get_col_value(row, header_map, 'algorithm for programming', 'algorithm')
+                source_algorithm = self._get_col_value(row, header_map, 'source/algorithm', 'source algorithm', 'source')
 
                 if not var_name:
                     continue
 
-                # 只处理有算法描述的衍生变量
-                if algorithm and str(algorithm).strip():
+                # Include variables with algorithm OR source_algorithm content
+                algo_text = str(algorithm).strip() if algorithm else ""
+                source_text = str(source_algorithm).strip() if source_algorithm else ""
+                combined = algo_text
+                if source_text:
+                    combined = f"{combined}\nSource: {source_text}" if combined else f"Source: {source_text}"
+
+                if combined:
                     chunk = KnowledgeChunk(
                         id=f"{domain.lower()}_spec_{var_name}_{row_idx}",
                         type="spec_variable",
                         source=filename,
                         domain=domain,
-                        content=f"Variable: {var_name}\nLabel: {var_label}\nOrigin: {origin}\nAlgorithm: {algorithm}",
+                        content=f"Variable: {var_name}\nLabel: {var_label}\nOrigin: {origin}\nAlgorithm: {combined}",
                         metadata={
                             "variable_name": var_name,
                             "variable_label": var_label,
                             "origin": origin,
-                            "algorithm": str(algorithm).strip(),
+                            "algorithm": combined,
                             "sheet": sheet_name,
                             "row": row_idx
                         }

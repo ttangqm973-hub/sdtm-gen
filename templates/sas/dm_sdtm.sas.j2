@@ -75,6 +75,45 @@ run;
 %msdtm_attrib(indsn=final,outdsn=sdtm.DM,domain=DM);
 
 /**********---------- SUPPDM ----------**********/
+{% if supp_qualifiers %}
+data suppdm;
+    set final;
+    length RDOMAIN $2 IDVAR $8 IDVARVAL $40
+           QNAM $8 QLABEL $40 QVAL $200 QORIG $40;
+    RDOMAIN = "DM";
+    IDVAR = "";
+    IDVARVAL = "";
+{% for sq in supp_qualifiers %}
+{% if sq.raw_source %}
+    if strip({{ sq.raw_source }}) ne "" then do;
+        QNAM = "{{ sq.qnam }}";
+        QLABEL = "{{ sq.qlabel }}";
+        QVAL = strip({{ sq.raw_source }});
+        QORIG = "{{ sq.origin }}";
+        output;
+    end;
+{% elif sq.direct_value %}
+    QNAM = "{{ sq.qnam }}";
+    QLABEL = "{{ sq.qlabel }}";
+    QVAL = "{{ sq.direct_value }}";
+    QORIG = "{{ sq.origin }}";
+    output;
+{% else %}
+    /* [AI-GEN-START] domain=SUPPDM variable={{ sq.qnam }} */
+    /* source: {{ sq.source_algorithm }} */
+    /* TODO: AI-generated SUPP logic for {{ sq.qnam }} */
+    /* [AI-GEN-END] */
+{% endif %}
+{% endfor %}
+    keep STUDYID RDOMAIN USUBJID IDVAR IDVARVAL QNAM QLABEL QVAL QORIG;
+run;
+
+proc sort data=suppdm;
+    by STUDYID RDOMAIN USUBJID QNAM;
+run;
+
+%msdtm_attrib(indsn=suppdm,outdsn=sdtm.suppDM,domain=suppDM);
+{% else %}
 data suppdm;
     set final(keep=studyid usubjid sitename ethnioth);
     where sitename ne '' or ethnioth ne '';
@@ -112,6 +151,7 @@ proc sort data=suppdm;
 run;
 
 %msdtm_attrib(indsn=suppdm,outdsn=sdtm.suppDM,domain=suppDM);
+{% endif %}
 
 *** XPT ***;
 %sdtm_xpt(indata=DM,in=sdtm,out=%str(&psdtm\xpt),nocontent=);
